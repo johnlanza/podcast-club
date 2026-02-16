@@ -128,6 +128,7 @@ export default function MeetingsPage() {
       .sort((a, b) => +new Date(b.date) - +new Date(a.date));
   }, [meetings, nextMeeting]);
   const recentPastMeetings = useMemo(() => pastMeetings.slice(0, 3), [pastMeetings]);
+  const remainingPastMeetings = useMemo(() => pastMeetings.slice(3), [pastMeetings]);
 
   function resetFormToCreate() {
     setEditingMeetingId(null);
@@ -296,6 +297,7 @@ export default function MeetingsPage() {
     currentMember.isAdmin || (editingMeeting && editingMeeting.host._id === currentMember._id)
   );
   const canEditMeeting = (meeting: Meeting) => currentMember.isAdmin || meeting.host._id === currentMember._id;
+  const isCurrentMemberHost = (meeting: Meeting) => meeting.host._id === currentMember._id;
   const displayMemberName = (person: { _id: string; name: string }) =>
     person._id === currentMember._id ? 'You' : person.name;
   const annotateSelfInList = (person: { _id: string; name: string }) =>
@@ -396,6 +398,7 @@ export default function MeetingsPage() {
               <h4>{formatDate(nextMeeting.date)}</h4>
               <p>
                 <strong>Host:</strong> {displayMemberName(nextMeeting.host)}
+                {isCurrentMemberHost(nextMeeting) ? <span className="badge" style={{ marginLeft: '0.4rem' }}>Host</span> : null}
               </p>
               <p>
                 <strong>Podcast:</strong> {nextMeeting.podcast?.title || <span className="badge tbd">TBD</span>}
@@ -456,6 +459,7 @@ export default function MeetingsPage() {
               <h4>{formatDate(meeting.date)}</h4>
               <p>
                 <strong>Host:</strong> {displayMemberName(meeting.host)}
+                {isCurrentMemberHost(meeting) ? <span className="badge" style={{ marginLeft: '0.4rem' }}>Host</span> : null}
               </p>
               <p>
                 <strong>Podcast:</strong> {meeting.podcast?.title || <span className="badge tbd">TBD</span>}
@@ -500,12 +504,13 @@ export default function MeetingsPage() {
         </div>
         {showAllPastMeetings ? (
           <div className="list" style={{ marginTop: '0.75rem' }}>
-            {pastMeetings.length === 0 ? <p>No past meetings yet.</p> : null}
-            {pastMeetings.map((meeting) => (
+            {remainingPastMeetings.length === 0 ? <p>No additional past meetings.</p> : null}
+            {remainingPastMeetings.map((meeting) => (
               <div className="item" key={`past-all-${meeting._id}`}>
                 <h4>{formatDate(meeting.date)}</h4>
                 <p>
                   <strong>Host:</strong> {displayMemberName(meeting.host)}
+                  {isCurrentMemberHost(meeting) ? <span className="badge" style={{ marginLeft: '0.4rem' }}>Host</span> : null}
                 </p>
                 <p>
                   <strong>Podcast:</strong> {meeting.podcast?.title || <span className="badge tbd">TBD</span>}

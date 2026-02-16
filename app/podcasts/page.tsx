@@ -3,7 +3,8 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { withBasePath } from '@/lib/base-path';
-import type { Podcast, SessionMember } from '@/lib/types';
+import { dedupePodcastsByContent } from '@/lib/podcast-dedupe';
+import type { Meeting, Podcast, SessionMember } from '@/lib/types';
 import { RATING_OPTIONS } from '@/lib/ranking';
 
 const initialForm = {
@@ -16,9 +17,17 @@ const initialForm = {
   notes: ''
 };
 
+function isCompletedMeeting(meeting: Meeting) {
+  if (meeting.status === 'completed') return true;
+  if (meeting.status === 'scheduled') return false;
+  if (meeting.completedAt) return true;
+  return new Date(meeting.date).getTime() < Date.now();
+}
+
 export default function PodcastsPage() {
   const [member, setMember] = useState<SessionMember | null>(null);
   const [podcasts, setPodcasts] = useState<Podcast[]>([]);
+  const [meetings, setMeetings] = useState<Meeting[]>([]);
   const [form, setForm] = useState(initialForm);
   const [savedRatings, setSavedRatings] = useState<Record<string, string>>({});
   const [draftRatings, setDraftRatings] = useState<Record<string, string>>({});
@@ -28,7 +37,7 @@ export default function PodcastsPage() {
   const [deletingPodcastId, setDeletingPodcastId] = useState<string | null>(null);
   const [deleteModalPodcast, setDeleteModalPodcast] = useState<Podcast | null>(null);
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
-  const [showAllRanked, setShowAllRanked] = useState(false);
+  const [showAllPodcastsToDiscuss, setShowAllPodcastsToDiscuss] = useState(false);
   const [showAllDiscussed, setShowAllDiscussed] = useState(false);
 
   async function loadPageData() {
@@ -41,11 +50,19 @@ export default function PodcastsPage() {
     const mePayload = await meRes.json();
     setMember(mePayload.member);
 
-    const podcastRes = await fetch(withBasePath('/api/podcasts'));
+    const [podcastRes, meetingRes] = await Promise.all([
+      fetch(withBasePath('/api/podcasts')),
+      fetch(withBasePath('/api/meetings'))
+    ]);
     if (!podcastRes.ok) return;
 
     const podcastData = (await podcastRes.json()) as Podcast[];
     setPodcasts(podcastData);
+    if (meetingRes.ok) {
+      setMeetings((await meetingRes.json()) as Meeting[]);
+    } else {
+      setMeetings([]);
+    }
 
     const nextRatings: Record<string, string> = {};
     podcastData.forEach((podcast) => {
@@ -81,7 +98,7 @@ export default function PodcastsPage() {
 
     setForm(initialForm);
     await loadPageData();
-    setSuccess('Podcast submitted successfully. It is now pinned at the top of your ranked podcasts.');
+    setSuccess('Podcast submitted successfully. It now appears in Podcasts To Discuss.');
     setSaving(false);
   }
 
@@ -171,24 +188,27 @@ export default function PodcastsPage() {
   const podcastsToRank = useMemo(() => {
     return pending.filter((podcast) => (savedRatings[podcast._id] || 'No selection') === 'No selection');
   }, [pending, savedRatings]);
-  const podcastsRankedByYou = useMemo(() => {
-    const ranked = pending.filter((podcast) => (savedRatings[podcast._id] || 'No selection') !== 'No selection');
-    return [...ranked].sort((a, b) => {
-      const aIsMySubmission = a.submittedBy._id === member?._id;
-      const bIsMySubmission = b.submittedBy._id === member?._id;
-      if (aIsMySubmission !== bIsMySubmission) return aIsMySubmission ? -1 : 1;
+  const podcastsToDiscuss = useMemo(() => {
+    const assignedPodcastIds = new Set(
+      meetings
+        .filter((meeting) => !isCompletedMeeting(meeting))
+        .map((meeting) => meeting.podcast?._id)
+        .filter((podcastId): podcastId is string => Boolean(podcastId))
+    );
 
-      if (aIsMySubmission && bIsMySubmission) {
-        const aTime = a.createdAt ? +new Date(a.createdAt) : 0;
-        const bTime = b.createdAt ? +new Date(b.createdAt) : 0;
-        if (bTime !== aTime) return bTime - aTime;
-      }
-
-      return 0;
-    });
-  }, [pending, savedRatings, member]);
-  const recentRankedByYou = useMemo(() => podcastsRankedByYou.slice(0, 3), [podcastsRankedByYou]);
+    return dedupePodcastsByContent(
+      pending
+      .filter((podcast) => !assignedPodcastIds.has(podcast._id))
+      .sort((a, b) => {
+        if (b.rankingScore !== a.rankingScore) return b.rankingScore - a.rankingScore;
+        return a.title.localeCompare(b.title);
+      })
+    );
+  }, [pending, meetings]);
+  const recentPodcastsToDiscuss = useMemo(() => podcastsToDiscuss.slice(0, 3), [podcastsToDiscuss]);
+  const remainingPodcastsToDiscuss = useMemo(() => podcastsToDiscuss.slice(3), [podcastsToDiscuss]);
   const recentDiscussed = useMemo(() => discussed.slice(0, 3), [discussed]);
+  const remainingDiscussed = useMemo(() => discussed.slice(3), [discussed]);
   const displayMemberName = (person: { _id: string; name: string }) =>
     member && person._id === member._id ? 'You' : person.name;
   const annotateSelfInList = (name: string) =>
@@ -352,7 +372,8 @@ export default function PodcastsPage() {
               </div>
               {showAllDiscussed ? (
                 <div className="list" style={{ marginTop: '0.75rem' }}>
-                  {discussed.map((podcast) => (
+                  {remainingDiscussed.length === 0 ? <p>No additional previously discussed podcasts.</p> : null}
+                  {remainingDiscussed.map((podcast) => (
                     <div className="item" key={`discussed-all-${podcast._id}`}>
                       <div className="inline podcast-item-head" style={{ justifyContent: 'space-between' }}>
                         <h4>{podcast.title}</h4>
@@ -417,10 +438,15 @@ export default function PodcastsPage() {
                 <p>
                   <strong>Ranking score:</strong> {podcast.rankingScore}
                 </p>
-                <p>
-                  <strong>Missing voters:</strong>{' '}
-                  {formatMissingVoters(podcast.missingVoters)}
-                </p>
+                {podcast.missingVoters.length > 0 ? (
+                  <p className="warning-banner">
+                    <strong>Warning:</strong> Missing votes from {formatMissingVoters(podcast.missingVoters)}
+                  </p>
+                ) : (
+                  <p>
+                    <strong>All members have rated.</strong>
+                  </p>
+                )}
 
                 <div className="inline">
                   {podcast.submittedBy._id === member._id ? <span className="badge">Locked: your submission</span> : null}
@@ -451,16 +477,19 @@ export default function PodcastsPage() {
         </div>
 
         <div className="card">
-          <h2 style={{ marginTop: 0 }}>Podcasts You've Ranked</h2>
-          <p>You can change your ranking at any time.</p>
+          <h2 style={{ marginTop: 0 }}>Podcasts To Discuss</h2>
+          <p>Pending podcasts not assigned to a meeting yet, ranked highest to lowest.</p>
 
           <div className="list" style={{ marginTop: '0.75rem' }}>
-            {recentRankedByYou.length === 0 ? <p>You have not ranked any pending podcasts yet.</p> : null}
-            {recentRankedByYou.map((podcast) => (
+            {recentPodcastsToDiscuss.length === 0 ? <p>No podcasts to discuss right now.</p> : null}
+            {recentPodcastsToDiscuss.map((podcast) => (
               <div className="item" key={`ranked-${podcast._id}`}>
                 <div className="inline podcast-item-head" style={{ justifyContent: 'space-between' }}>
                   <h4>{podcast.title}</h4>
-                  {savedRatings[podcast._id] === 'My podcast' ? <span className="badge my-podcast">My Podcast</span> : null}
+                  <div className="inline" style={{ gap: '0.35rem' }}>
+                    <span className="badge ranking-score">Score: {podcast.rankingScore}</span>
+                    {savedRatings[podcast._id] === 'My podcast' ? <span className="badge my-podcast">My Podcast</span> : null}
+                  </div>
                 </div>
                 <p>
                   <strong>Host:</strong> {podcast.host || 'Unknown'}
@@ -478,13 +507,15 @@ export default function PodcastsPage() {
                 <p>
                   <strong>Submitted by:</strong> {displayMemberName(podcast.submittedBy)}
                 </p>
-                <p>
-                  <strong>Ranking score:</strong> {podcast.rankingScore}
-                </p>
-                <p>
-                  <strong>Missing voters:</strong>{' '}
-                  {formatMissingVoters(podcast.missingVoters)}
-                </p>
+                {podcast.missingVoters.length > 0 ? (
+                  <p className="warning-banner">
+                    <strong>Warning:</strong> Missing votes from {formatMissingVoters(podcast.missingVoters)}
+                  </p>
+                ) : (
+                  <p>
+                    <strong>All members have rated.</strong>
+                  </p>
+                )}
                 <p>
                   <strong>Your rating:</strong> {savedRatings[podcast._id]}
                 </p>
@@ -515,20 +546,23 @@ export default function PodcastsPage() {
             ))}
           </div>
           <div className="inline" style={{ marginTop: '0.75rem' }}>
-            <button type="button" className="secondary" onClick={() => setShowAllRanked((prev) => !prev)}>
-              {showAllRanked ? 'Show Recent Podcasts' : 'Show All Podcasts'}
+            <button type="button" className="secondary" onClick={() => setShowAllPodcastsToDiscuss((prev) => !prev)}>
+              {showAllPodcastsToDiscuss ? 'Show Recent Podcasts' : 'Show All Podcasts'}
             </button>
           </div>
-          {showAllRanked ? (
+          {showAllPodcastsToDiscuss ? (
             <div className="list" style={{ marginTop: '0.75rem' }}>
-              {podcastsRankedByYou.length === 0 ? <p>You have not ranked any pending podcasts yet.</p> : null}
-              {podcastsRankedByYou.map((podcast) => (
+              {remainingPodcastsToDiscuss.length === 0 ? <p>No additional podcasts to discuss.</p> : null}
+              {remainingPodcastsToDiscuss.map((podcast) => (
                 <div className="item" key={`ranked-all-${podcast._id}`}>
                   <div className="inline podcast-item-head" style={{ justifyContent: 'space-between' }}>
                     <h4>{podcast.title}</h4>
-                    {savedRatings[podcast._id] === 'My podcast' ? (
-                      <span className="badge my-podcast">My Podcast</span>
-                    ) : null}
+                    <div className="inline" style={{ gap: '0.35rem' }}>
+                      <span className="badge ranking-score">Score: {podcast.rankingScore}</span>
+                      {savedRatings[podcast._id] === 'My podcast' ? (
+                        <span className="badge my-podcast">My Podcast</span>
+                      ) : null}
+                    </div>
                   </div>
                   <p>
                     <strong>Host:</strong> {podcast.host || 'Unknown'}
@@ -546,13 +580,15 @@ export default function PodcastsPage() {
                   <p>
                     <strong>Submitted by:</strong> {displayMemberName(podcast.submittedBy)}
                   </p>
-                  <p>
-                    <strong>Ranking score:</strong> {podcast.rankingScore}
-                  </p>
-                  <p>
-                    <strong>Missing voters:</strong>{' '}
-                    {formatMissingVoters(podcast.missingVoters)}
-                  </p>
+                  {podcast.missingVoters.length > 0 ? (
+                    <p className="warning-banner">
+                      <strong>Warning:</strong> Missing votes from {formatMissingVoters(podcast.missingVoters)}
+                    </p>
+                  ) : (
+                    <p>
+                      <strong>All members have rated.</strong>
+                    </p>
+                  )}
                   <p>
                     <strong>Your rating:</strong> {savedRatings[podcast._id]}
                   </p>

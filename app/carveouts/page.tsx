@@ -77,6 +77,7 @@ export default function CarveOutsPage() {
     [carveOuts]
   );
   const recentCarveOuts = useMemo(() => visibleCarveOuts.slice(0, 3), [visibleCarveOuts]);
+  const remainingCarveOuts = useMemo(() => visibleCarveOuts.slice(3), [visibleCarveOuts]);
   const displayMemberName = (person: { _id: string; name: string }) =>
     member && person._id === member._id ? 'You' : person.name;
   const canManageCarveOut = (carveOut: CarveOut) =>
@@ -279,9 +280,12 @@ export default function CarveOutsPage() {
           {recentCarveOuts.length === 0 ? <p>No carve outs saved yet.</p> : null}
           {recentCarveOuts.map((carveOut) => (
             <div className="item" key={carveOut._id}>
-              <div className="inline">
+              <div className="inline carveout-item-head" style={{ justifyContent: 'space-between' }}>
                 <h4>{carveOut.title}</h4>
-                <span className="badge">{carveOut.type}</span>
+                <div className="inline" style={{ gap: '0.35rem' }}>
+                  <span className="badge">{carveOut.type}</span>
+                  {carveOut.member._id === member._id ? <span className="badge my-carveout">My Carve Out</span> : null}
+                </div>
               </div>
               <p>
                 <strong>Shared by:</strong> {displayMemberName(carveOut.member)}
@@ -317,12 +321,15 @@ export default function CarveOutsPage() {
         </div>
         {showAllCarveOuts ? (
           <div className="list" style={{ marginTop: '0.75rem' }}>
-            {visibleCarveOuts.length === 0 ? <p>No carve outs saved yet.</p> : null}
-            {visibleCarveOuts.map((carveOut) => (
+            {remainingCarveOuts.length === 0 ? <p>No additional carve outs.</p> : null}
+            {remainingCarveOuts.map((carveOut) => (
               <div className="item" key={`all-${carveOut._id}`}>
-                <div className="inline">
+                <div className="inline carveout-item-head" style={{ justifyContent: 'space-between' }}>
                   <h4>{carveOut.title}</h4>
-                  <span className="badge">{carveOut.type}</span>
+                  <div className="inline" style={{ gap: '0.35rem' }}>
+                    <span className="badge">{carveOut.type}</span>
+                    {carveOut.member._id === member._id ? <span className="badge my-carveout">My Carve Out</span> : null}
+                  </div>
                 </div>
                 <p>
                   <strong>Shared by:</strong> {displayMemberName(carveOut.member)}

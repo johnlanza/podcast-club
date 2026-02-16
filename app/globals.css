@@ -242,6 +242,19 @@ button:disabled {
   border-color: #1a7a3d;
 }
 
+.badge.my-carveout {
+  background: #0d7666;
+  color: #fff;
+  border-color: #0b5f52;
+}
+
+.badge.ranking-score {
+  background: #e8edf9;
+  color: #22407a;
+  border-color: #c9d6f0;
+  font-weight: 600;
+}
+
 .badge.tbd {
   background: #efe7dc;
   color: #5a4b35;
@@ -306,6 +319,17 @@ button:disabled {
 
 .podcasts-page .podcast-item-head .badge {
   margin-left: auto;
+}
+
+.carveout-item-head {
+  flex-wrap: nowrap;
+  align-items: flex-start;
+  gap: 0.6rem;
+}
+
+.carveout-item-head h4 {
+  min-width: 0;
+  flex: 1 1 auto;
 }
 
 .modal-backdrop {
