@@ -29,6 +29,7 @@ export default function HomePage() {
   const [showAllCarveOuts, setShowAllCarveOuts] = useState(false);
   const [showAllDiscussedPodcasts, setShowAllDiscussedPodcasts] = useState(false);
   const [showAllPodcastsToDiscuss, setShowAllPodcastsToDiscuss] = useState(false);
+  const [showAllPodcastsToRank, setShowAllPodcastsToRank] = useState(false);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -107,6 +108,30 @@ export default function HomePage() {
       return !myRating || myRating.value === 'No selection';
     });
   }, [pending, member]);
+  const recentPodcastsToRank = useMemo(() => podcastsToRank.slice(0, 3), [podcastsToRank]);
+  const podcastsRankedByYou = useMemo(() => {
+    if (!member) return [];
+
+    const ranked = pending.filter((podcast) => {
+      const myRating = podcast.ratings.find((rating) => rating.member._id === member._id);
+      return Boolean(myRating && myRating.value !== 'No selection');
+    });
+
+    return [...ranked].sort((a, b) => {
+      const aIsMySubmission = a.submittedBy._id === member._id;
+      const bIsMySubmission = b.submittedBy._id === member._id;
+      if (aIsMySubmission !== bIsMySubmission) return aIsMySubmission ? -1 : 1;
+
+      if (aIsMySubmission && bIsMySubmission) {
+        const aTime = a.createdAt ? +new Date(a.createdAt) : 0;
+        const bTime = b.createdAt ? +new Date(b.createdAt) : 0;
+        if (bTime !== aTime) return bTime - aTime;
+      }
+
+      return 0;
+    });
+  }, [pending, member]);
+  const recentRankedByYou = useMemo(() => podcastsRankedByYou.slice(0, 3), [podcastsRankedByYou]);
 
   const recentCarveOuts = useMemo(() => {
     return [...carveOuts]
@@ -294,12 +319,11 @@ export default function HomePage() {
         )}
       </div>
 
-      <div className="card">
-        <h3>Podcasts You Need to Rank</h3>
-        {!member ? <p>Sign in to see your personal ranking queue.</p> : null}
+      <div className="card podcasts-to-rank-card">
+        <h3>Podcasts to Rank</h3>
         <div className="list">
-          {member && podcastsToRank.length === 0 ? <p>You have ranked all available podcasts.</p> : null}
-          {(member ? podcastsToRank : pending).map((podcast) => (
+          {recentPodcastsToRank.length === 0 ? <p>No podcasts left to rank.</p> : null}
+          {recentPodcastsToRank.map((podcast) => (
             <div key={`rank-queue-${podcast._id}`} className="item">
               <h4>{podcast.title}</h4>
               <p>
@@ -316,9 +340,77 @@ export default function HomePage() {
             </div>
           ))}
         </div>
+        {podcastsToRank.length > 0 ? (
+          <div className="inline" style={{ marginTop: '0.75rem' }}>
+            <button
+              type="button"
+              className="secondary"
+              onClick={() => setShowAllPodcastsToRank((prev) => !prev)}
+            >
+              {showAllPodcastsToRank ? 'Show Recent Podcasts' : 'Show All Podcasts'}
+            </button>
+          </div>
+        ) : null}
+        {showAllPodcastsToRank && podcastsToRank.length > 0 ? (
+          <div className="list" style={{ marginTop: '0.75rem' }}>
+            {podcastsToRank.map((podcast) => (
+              <div key={`rank-queue-all-${podcast._id}`} className="item">
+                <h4>{podcast.title}</h4>
+                <p>
+                  <strong>Host:</strong> {podcast.host || 'Unknown'}
+                </p>
+                <p>
+                  <strong>Episode(s):</strong> {podcast.episodeNames || 'Unknown'}
+                </p>
+                <p>
+                  <a href={podcast.link} target="_blank" rel="noreferrer">
+                    {podcast.link}
+                  </a>
+                </p>
+              </div>
+            ))}
+          </div>
+        ) : null}
+        {podcastsToRank.length > 0 ? (
+          <p>
+            <Link className="nav-link" href="/podcasts">
+              Rank Podcasts
+            </Link>
+          </p>
+        ) : null}
+      </div>
+
+      <div className="card">
+        <h3>Podcasts You've Ranked</h3>
+        <div className="list">
+          {recentRankedByYou.length === 0 ? <p>You have not ranked any pending podcasts yet.</p> : null}
+          {recentRankedByYou.map((podcast) => (
+            <div key={`ranked-home-${podcast._id}`} className="item">
+              <div className="inline" style={{ justifyContent: 'space-between' }}>
+                <h4>{podcast.title}</h4>
+                {podcast.submittedBy._id === member._id ? <span className="badge my-podcast">My Podcast</span> : null}
+              </div>
+              <p>
+                <strong>Host:</strong> {podcast.host || 'Unknown'}
+              </p>
+              <p>
+                <strong>Episode(s):</strong> {podcast.episodeNames || 'Unknown'}
+              </p>
+              <p>
+                <strong>Your rating:</strong>{' '}
+                {podcast.ratings.find((rating) => rating.member._id === member._id)?.value || 'No selection'}
+              </p>
+              <p>
+                <a href={podcast.link} target="_blank" rel="noreferrer">
+                  {podcast.link}
+                </a>
+              </p>
+            </div>
+          ))}
+        </div>
         <p>
           <Link className="nav-link" href="/podcasts">
-            Rank Podcasts
+            View All Ranked Podcasts
           </Link>
         </p>
       </div>

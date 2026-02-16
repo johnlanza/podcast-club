@@ -91,6 +91,7 @@ body {
 .card h3 {
   margin-top: 0;
   font-family: var(--font-serif), serif;
+  font-size: 1.5rem;
 }
 
 .stat {
@@ -209,6 +210,10 @@ button:disabled {
   color: var(--danger);
 }
 
+.success-message {
+  color: #1a6d3b;
+}
+
 .warning-banner {
   margin: 0.3rem 0;
   padding: 0.45rem 0.6rem;
@@ -259,6 +264,13 @@ button:disabled {
 .podcasts-to-discuss-card .item p,
 .podcasts-to-discuss-card .item a,
 .podcasts-to-discuss-card .item h4 {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.podcasts-to-rank-card .item p,
+.podcasts-to-rank-card .item a,
+.podcasts-to-rank-card .item h4 {
   overflow-wrap: anywhere;
   word-break: break-word;
 }

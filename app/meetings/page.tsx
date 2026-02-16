@@ -59,6 +59,10 @@ export default function MeetingsPage() {
   const [saving, setSaving] = useState(false);
   const [workingMeetingId, setWorkingMeetingId] = useState<string | null>(null);
   const [showAllPastMeetings, setShowAllPastMeetings] = useState(false);
+  const [completeModalMeeting, setCompleteModalMeeting] = useState<Meeting | null>(null);
+  const [completeNotes, setCompleteNotes] = useState('');
+  const [deleteModalMeeting, setDeleteModalMeeting] = useState<Meeting | null>(null);
+  const [deleteConfirmText, setDeleteConfirmText] = useState('');
 
   async function loadPageData() {
     const meRes = await fetch(withBasePath('/api/auth/me'), { cache: 'no-store' });
@@ -177,66 +181,100 @@ export default function MeetingsPage() {
     setSaving(false);
   }
 
-  async function completeMeeting(meeting: Meeting) {
-    const notes = window.prompt('Meeting Completed: Enter meeting notes to archive this meeting.');
-    if (!notes) return;
-
+  function openCompleteMeetingModal(meeting: Meeting) {
     setError('');
-    setWorkingMeetingId(meeting._id);
-
-    const res = await fetch(`/api/meetings/${meeting._id}/complete`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ notes })
-    });
-
-    if (!res.ok) {
-      const payload = await res.json();
-      setError(payload.message || 'Unable to complete meeting.');
-      setWorkingMeetingId(null);
-      return;
-    }
-
-    await loadPageData();
-    setWorkingMeetingId(null);
+    setCompleteModalMeeting(meeting);
+    setCompleteNotes(meeting.notes || '');
   }
 
-  async function deleteMeeting(meeting: Meeting) {
-    const completed = isCompletedMeeting(meeting);
-    const confirmText = completed ? window.prompt('Type DELETE to remove this past meeting.') : 'DELETE';
+  function closeCompleteMeetingModal() {
+    if (workingMeetingId) return;
+    setCompleteModalMeeting(null);
+    setCompleteNotes('');
+  }
 
-    if (completed && confirmText !== 'DELETE') {
-      setError('Past meeting deletion cancelled. You must type DELETE exactly.');
+  async function confirmCompleteMeeting() {
+    if (!completeModalMeeting) return;
+
+    if (!completeNotes.trim()) {
+      setError('Please enter meeting notes before completing the meeting.');
       return;
     }
 
-    if (!completed) {
-      const confirmed = window.confirm('Delete this next meeting?');
-      if (!confirmed) return;
+    setError('');
+    setWorkingMeetingId(completeModalMeeting._id);
+    try {
+      const res = await fetch(withBasePath(`/api/meetings/${completeModalMeeting._id}/complete`), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ notes: completeNotes })
+      });
+
+      const payload = (await res.json().catch(() => null)) as { message?: string } | null;
+      if (!res.ok) {
+        setError(payload?.message || 'Unable to complete meeting.');
+        return;
+      }
+
+      setCompleteModalMeeting(null);
+      setCompleteNotes('');
+      await loadPageData();
+    } catch {
+      setError('Unable to complete meeting.');
+    } finally {
+      setWorkingMeetingId(null);
+    }
+  }
+
+  function openDeleteMeetingModal(meeting: Meeting) {
+    setError('');
+    setDeleteModalMeeting(meeting);
+    setDeleteConfirmText('');
+  }
+
+  function closeDeleteMeetingModal() {
+    if (workingMeetingId) return;
+    setDeleteModalMeeting(null);
+    setDeleteConfirmText('');
+  }
+
+  async function confirmDeleteMeeting() {
+    if (!deleteModalMeeting) return;
+    const meeting = deleteModalMeeting;
+    const completed = isCompletedMeeting(meeting);
+    if (completed && deleteConfirmText !== 'DELETE') {
+      setError('Past meeting deletion requires typing DELETE exactly.');
+      return;
     }
 
     setError('');
     setWorkingMeetingId(meeting._id);
 
-    const res = await fetch(`/api/meetings/${meeting._id}`, {
-      method: 'DELETE',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(completed ? { confirmText } : {})
-    });
+    try {
+      const res = await fetch(withBasePath(`/api/meetings/${meeting._id}`), {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(completed ? { confirmText: deleteConfirmText } : {})
+      });
 
-    if (!res.ok) {
-      const payload = await res.json();
-      setError(payload.message || 'Unable to delete meeting.');
+      const payload = (await res.json().catch(() => null)) as { message?: string } | null;
+      if (!res.ok) {
+        setError(payload?.message || 'Unable to delete meeting.');
+        return;
+      }
+
+      if (editingMeetingId === meeting._id) {
+        resetFormToCreate();
+      }
+
+      setDeleteModalMeeting(null);
+      setDeleteConfirmText('');
+      await loadPageData();
+    } catch {
+      setError('Unable to delete meeting.');
+    } finally {
       setWorkingMeetingId(null);
-      return;
     }
-
-    if (editingMeetingId === meeting._id) {
-      resetFormToCreate();
-    }
-
-    await loadPageData();
-    setWorkingMeetingId(null);
   }
 
   if (!currentMember) {
@@ -385,7 +423,7 @@ export default function MeetingsPage() {
                     <>
                       <button
                         type="button"
-                        onClick={() => completeMeeting(nextMeeting)}
+                        onClick={() => openCompleteMeetingModal(nextMeeting)}
                         disabled={workingMeetingId === nextMeeting._id}
                       >
                         {workingMeetingId === nextMeeting._id ? 'Saving...' : 'Meeting Completed'}
@@ -393,7 +431,7 @@ export default function MeetingsPage() {
                       <button
                         type="button"
                         className="secondary"
-                        onClick={() => deleteMeeting(nextMeeting)}
+                        onClick={() => openDeleteMeetingModal(nextMeeting)}
                         disabled={workingMeetingId === nextMeeting._id}
                       >
                         Delete Next Meeting
@@ -444,7 +482,7 @@ export default function MeetingsPage() {
                     <button
                       type="button"
                       className="secondary"
-                      onClick={() => deleteMeeting(meeting)}
+                      onClick={() => openDeleteMeetingModal(meeting)}
                       disabled={workingMeetingId === meeting._id}
                     >
                       Delete (type DELETE)
@@ -494,7 +532,7 @@ export default function MeetingsPage() {
                       <button
                         type="button"
                         className="secondary"
-                        onClick={() => deleteMeeting(meeting)}
+                        onClick={() => openDeleteMeetingModal(meeting)}
                         disabled={workingMeetingId === meeting._id}
                       >
                         Delete (type DELETE)
@@ -507,6 +545,73 @@ export default function MeetingsPage() {
           </div>
         ) : null}
       </div>
+
+      {completeModalMeeting ? (
+        <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="complete-meeting-title">
+          <div className="modal-card">
+            <h3 id="complete-meeting-title">Complete Meeting</h3>
+            <p>Add notes to archive this meeting.</p>
+            <label>
+              Meeting notes
+              <textarea
+                value={completeNotes}
+                onChange={(event) => setCompleteNotes(event.target.value)}
+                placeholder="Discussed themes, takeaways, next actions..."
+              />
+            </label>
+            <div className="inline" style={{ marginTop: '0.5rem' }}>
+              <button
+                type="button"
+                onClick={confirmCompleteMeeting}
+                disabled={workingMeetingId === completeModalMeeting._id}
+              >
+                {workingMeetingId === completeModalMeeting._id ? 'Saving...' : 'Meeting Completed'}
+              </button>
+              <button type="button" className="ghost" onClick={closeCompleteMeetingModal} disabled={Boolean(workingMeetingId)}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {deleteModalMeeting ? (
+        <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="delete-meeting-title">
+          <div className="modal-card">
+            <h3 id="delete-meeting-title">Delete Meeting</h3>
+            {isCompletedMeeting(deleteModalMeeting) ? (
+              <p>
+                Type <strong>DELETE</strong> to confirm deleting <strong>{formatDate(deleteModalMeeting.date)}</strong>.
+              </p>
+            ) : (
+              <p>Delete this next meeting?</p>
+            )}
+            {isCompletedMeeting(deleteModalMeeting) ? (
+              <label>
+                Confirmation
+                <input
+                  value={deleteConfirmText}
+                  onChange={(event) => setDeleteConfirmText(event.target.value)}
+                  placeholder="DELETE"
+                />
+              </label>
+            ) : null}
+            <div className="inline" style={{ marginTop: '0.5rem' }}>
+              <button
+                type="button"
+                className="secondary"
+                onClick={confirmDeleteMeeting}
+                disabled={workingMeetingId === deleteModalMeeting._id}
+              >
+                {workingMeetingId === deleteModalMeeting._id ? 'Deleting...' : 'Delete Meeting'}
+              </button>
+              <button type="button" className="ghost" onClick={closeDeleteMeetingModal} disabled={Boolean(workingMeetingId)}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </section>
   );
 }

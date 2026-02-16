@@ -23,6 +23,7 @@ export default function PodcastsPage() {
   const [savedRatings, setSavedRatings] = useState<Record<string, string>>({});
   const [draftRatings, setDraftRatings] = useState<Record<string, string>>({});
   const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
   const [saving, setSaving] = useState(false);
   const [deletingPodcastId, setDeletingPodcastId] = useState<string | null>(null);
   const [deleteModalPodcast, setDeleteModalPodcast] = useState<Podcast | null>(null);
@@ -62,6 +63,7 @@ export default function PodcastsPage() {
   async function onSubmit(event: FormEvent) {
     event.preventDefault();
     setError('');
+    setSuccess('');
     setSaving(true);
 
     const res = await fetch(withBasePath('/api/podcasts'), {
@@ -79,6 +81,7 @@ export default function PodcastsPage() {
 
     setForm(initialForm);
     await loadPageData();
+    setSuccess('Podcast submitted successfully. It is now pinned at the top of your ranked podcasts.');
     setSaving(false);
   }
 
@@ -131,24 +134,27 @@ export default function PodcastsPage() {
 
     setError('');
     setDeletingPodcastId(deleteModalPodcast._id);
+    try {
+      const res = await fetch(withBasePath(`/api/podcasts/${deleteModalPodcast._id}`), {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ confirmText: deleteConfirmText })
+      });
 
-    const res = await fetch(`/api/podcasts/${deleteModalPodcast._id}`, {
-      method: 'DELETE',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ confirmText: deleteConfirmText })
-    });
+      const payload = (await res.json().catch(() => null)) as { message?: string } | null;
+      if (!res.ok) {
+        setError(payload?.message || 'Unable to delete podcast.');
+        return;
+      }
 
-    const payload = await res.json();
-    if (!res.ok) {
-      setError(payload.message || 'Unable to delete podcast.');
+      setDeleteModalPodcast(null);
+      setDeleteConfirmText('');
+      await loadPageData();
+    } catch {
+      setError('Unable to delete podcast.');
+    } finally {
       setDeletingPodcastId(null);
-      return;
     }
-
-    setDeleteModalPodcast(null);
-    setDeleteConfirmText('');
-    setDeletingPodcastId(null);
-    await loadPageData();
   }
 
   const pending = useMemo(() => podcasts.filter((podcast) => podcast.status === 'pending'), [podcasts]);
@@ -166,8 +172,21 @@ export default function PodcastsPage() {
     return pending.filter((podcast) => (savedRatings[podcast._id] || 'No selection') === 'No selection');
   }, [pending, savedRatings]);
   const podcastsRankedByYou = useMemo(() => {
-    return pending.filter((podcast) => (savedRatings[podcast._id] || 'No selection') !== 'No selection');
-  }, [pending, savedRatings]);
+    const ranked = pending.filter((podcast) => (savedRatings[podcast._id] || 'No selection') !== 'No selection');
+    return [...ranked].sort((a, b) => {
+      const aIsMySubmission = a.submittedBy._id === member?._id;
+      const bIsMySubmission = b.submittedBy._id === member?._id;
+      if (aIsMySubmission !== bIsMySubmission) return aIsMySubmission ? -1 : 1;
+
+      if (aIsMySubmission && bIsMySubmission) {
+        const aTime = a.createdAt ? +new Date(a.createdAt) : 0;
+        const bTime = b.createdAt ? +new Date(b.createdAt) : 0;
+        if (bTime !== aTime) return bTime - aTime;
+      }
+
+      return 0;
+    });
+  }, [pending, savedRatings, member]);
   const recentRankedByYou = useMemo(() => podcastsRankedByYou.slice(0, 3), [podcastsRankedByYou]);
   const recentDiscussed = useMemo(() => discussed.slice(0, 3), [discussed]);
   const displayMemberName = (person: { _id: string; name: string }) =>
@@ -224,78 +243,152 @@ export default function PodcastsPage() {
   return (
     <section className="grid podcasts-page" style={{ marginTop: '1rem' }}>
       <div className="grid two" style={{ alignItems: 'start' }}>
-        <div className="card">
-        <h2>Submit Podcast</h2>
-        <form className="form" onSubmit={onSubmit}>
-          <label>
-            Podcast Title
-            <input
-              value={form.title}
-              onChange={(event) => setForm((prev) => ({ ...prev, title: event.target.value }))}
-              required
-            />
-          </label>
-          <label>
-            Host
-            <input
-              value={form.host}
-              onChange={(event) => setForm((prev) => ({ ...prev, host: event.target.value }))}
-              required
-            />
-          </label>
-          <label>
-            # of Episodes
-            <input
-              type="number"
-              min={1}
-              value={form.episodeCount}
-              onChange={(event) => setForm((prev) => ({ ...prev, episodeCount: event.target.value }))}
-              required
-            />
-          </label>
-          <label>
-            Name of Episode(s)
-            <input
-              value={form.episodeNames}
-              onChange={(event) => setForm((prev) => ({ ...prev, episodeNames: event.target.value }))}
-              required
-            />
-          </label>
-          <label>
-            Total Time (approx min)
-            <input
-              type="number"
-              min={1}
-              value={form.totalTimeMinutes}
-              onChange={(event) => setForm((prev) => ({ ...prev, totalTimeMinutes: event.target.value }))}
-              required
-            />
-          </label>
-          <label>
-            Link
-            <input
-              type="url"
-              value={form.link}
-              onChange={(event) => setForm((prev) => ({ ...prev, link: event.target.value }))}
-              required
-            />
-          </label>
-          <label>
-            Notes
-            <textarea
-              value={form.notes}
-              onChange={(event) => setForm((prev) => ({ ...prev, notes: event.target.value }))}
-            />
-          </label>
-          <button disabled={saving}>{saving ? 'Saving...' : 'Add Podcast'}</button>
-          {error ? <p className="error">{error}</p> : null}
-        </form>
+        <div className="grid">
+          <div className="card">
+            <h2>Submit Podcast</h2>
+            <form className="form" onSubmit={onSubmit}>
+              <label>
+                Podcast Title
+                <input
+                  value={form.title}
+                  onChange={(event) => setForm((prev) => ({ ...prev, title: event.target.value }))}
+                  required
+                />
+              </label>
+              <label>
+                Host
+                <input
+                  value={form.host}
+                  onChange={(event) => setForm((prev) => ({ ...prev, host: event.target.value }))}
+                  required
+                />
+              </label>
+              <label>
+                # of Episodes
+                <input
+                  type="number"
+                  min={1}
+                  value={form.episodeCount}
+                  onChange={(event) => setForm((prev) => ({ ...prev, episodeCount: event.target.value }))}
+                  required
+                />
+              </label>
+              <label>
+                Name of Episode(s)
+                <input
+                  value={form.episodeNames}
+                  onChange={(event) => setForm((prev) => ({ ...prev, episodeNames: event.target.value }))}
+                  required
+                />
+              </label>
+              <label>
+                Total Time (approx min)
+                <input
+                  type="number"
+                  min={1}
+                  value={form.totalTimeMinutes}
+                  onChange={(event) => setForm((prev) => ({ ...prev, totalTimeMinutes: event.target.value }))}
+                  required
+                />
+              </label>
+              <label>
+                Link
+                <input
+                  type="url"
+                  value={form.link}
+                  onChange={(event) => setForm((prev) => ({ ...prev, link: event.target.value }))}
+                  required
+                />
+              </label>
+              <label>
+                Notes
+                <textarea
+                  value={form.notes}
+                  onChange={(event) => setForm((prev) => ({ ...prev, notes: event.target.value }))}
+                />
+              </label>
+              <button disabled={saving}>{saving ? 'Saving...' : 'Add Podcast'}</button>
+              {error ? <p className="error">{error}</p> : null}
+              {success ? <p className="success-message">{success}</p> : null}
+            </form>
+          </div>
+
+          {discussed.length > 0 ? (
+            <div className="card">
+              <h3>Podcasts Previously Discussed</h3>
+              <div className="list" style={{ marginTop: '0.75rem' }}>
+                {recentDiscussed.map((podcast) => (
+                  <div className="item" key={podcast._id}>
+                    <div className="inline podcast-item-head" style={{ justifyContent: 'space-between' }}>
+                      <h4>{podcast.title}</h4>
+                      <span className="badge">Discussed</span>
+                    </div>
+                    <p>
+                      <strong>Description:</strong> {podcast.notes || 'No description yet.'}
+                    </p>
+                    <p>
+                      <strong>Link:</strong>{' '}
+                      <a href={podcast.link} target="_blank" rel="noreferrer">
+                        {podcast.link}
+                      </a>
+                    </p>
+                    <p>
+                      <strong>Final ranking score:</strong> {podcast.rankingScore}
+                    </p>
+                    {canDeletePodcast(podcast) ? (
+                      <div className="inline" style={{ marginTop: '0.4rem' }}>
+                        <button className="secondary" onClick={() => openDeleteModal(podcast)}>
+                          Delete Podcast
+                        </button>
+                      </div>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+              <div className="inline" style={{ marginTop: '0.75rem' }}>
+                <button type="button" className="secondary" onClick={() => setShowAllDiscussed((prev) => !prev)}>
+                  {showAllDiscussed ? 'Show Recent Podcasts' : 'Show All Podcasts'}
+                </button>
+              </div>
+              {showAllDiscussed ? (
+                <div className="list" style={{ marginTop: '0.75rem' }}>
+                  {discussed.map((podcast) => (
+                    <div className="item" key={`discussed-all-${podcast._id}`}>
+                      <div className="inline podcast-item-head" style={{ justifyContent: 'space-between' }}>
+                        <h4>{podcast.title}</h4>
+                        <span className="badge">Discussed</span>
+                      </div>
+                      <p>
+                        <strong>Description:</strong> {podcast.notes || 'No description yet.'}
+                      </p>
+                      <p>
+                        <strong>Link:</strong>{' '}
+                        <a href={podcast.link} target="_blank" rel="noreferrer">
+                          {podcast.link}
+                        </a>
+                      </p>
+                      <p>
+                        <strong>Final ranking score:</strong> {podcast.rankingScore}
+                      </p>
+                      {canDeletePodcast(podcast) ? (
+                        <div className="inline" style={{ marginTop: '0.4rem' }}>
+                          <button className="secondary" onClick={() => openDeleteModal(podcast)}>
+                            Delete Podcast
+                          </button>
+                        </div>
+                      ) : null}
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
         </div>
 
         <div className="grid">
         <div className="card">
           <h2 style={{ marginTop: 0 }}>Podcasts to Rank</h2>
-          <p>Rate each pending podcast. Rankings use your point system from the sheet.</p>
+          {podcastsToRank.length > 0 ? <p>Rate each pending podcast. Rankings use your point system from the sheet.</p> : null}
 
           <div className="list" style={{ marginTop: '0.75rem' }}>
             {podcastsToRank.length === 0 ? <p>No podcasts left to rank.</p> : null}
@@ -492,76 +585,6 @@ export default function PodcastsPage() {
           ) : null}
         </div>
 
-        {discussed.length > 0 ? (
-          <div className="card">
-            <h3>Podcasts Previously Discussed</h3>
-            <div className="list" style={{ marginTop: '0.75rem' }}>
-              {recentDiscussed.map((podcast) => (
-                <div className="item" key={podcast._id}>
-                  <div className="inline podcast-item-head" style={{ justifyContent: 'space-between' }}>
-                    <h4>{podcast.title}</h4>
-                    <span className="badge">Discussed</span>
-                  </div>
-                  <p>
-                    <strong>Description:</strong> {podcast.notes || 'No description yet.'}
-                  </p>
-                  <p>
-                    <strong>Link:</strong>{' '}
-                    <a href={podcast.link} target="_blank" rel="noreferrer">
-                      {podcast.link}
-                    </a>
-                  </p>
-                  <p>
-                    <strong>Final ranking score:</strong> {podcast.rankingScore}
-                  </p>
-                  {canDeletePodcast(podcast) ? (
-                    <div className="inline" style={{ marginTop: '0.4rem' }}>
-                      <button className="secondary" onClick={() => openDeleteModal(podcast)}>
-                        Delete Podcast
-                      </button>
-                    </div>
-                  ) : null}
-                </div>
-              ))}
-            </div>
-            <div className="inline" style={{ marginTop: '0.75rem' }}>
-              <button type="button" className="secondary" onClick={() => setShowAllDiscussed((prev) => !prev)}>
-                {showAllDiscussed ? 'Show Recent Podcasts' : 'Show All Podcasts'}
-              </button>
-            </div>
-            {showAllDiscussed ? (
-              <div className="list" style={{ marginTop: '0.75rem' }}>
-                {discussed.map((podcast) => (
-                  <div className="item" key={`discussed-all-${podcast._id}`}>
-                    <div className="inline podcast-item-head" style={{ justifyContent: 'space-between' }}>
-                      <h4>{podcast.title}</h4>
-                      <span className="badge">Discussed</span>
-                    </div>
-                    <p>
-                      <strong>Description:</strong> {podcast.notes || 'No description yet.'}
-                    </p>
-                    <p>
-                      <strong>Link:</strong>{' '}
-                      <a href={podcast.link} target="_blank" rel="noreferrer">
-                        {podcast.link}
-                      </a>
-                    </p>
-                    <p>
-                      <strong>Final ranking score:</strong> {podcast.rankingScore}
-                    </p>
-                    {canDeletePodcast(podcast) ? (
-                      <div className="inline" style={{ marginTop: '0.4rem' }}>
-                        <button className="secondary" onClick={() => openDeleteModal(podcast)}>
-                          Delete Podcast
-                        </button>
-                      </div>
-                    ) : null}
-                  </div>
-                ))}
-              </div>
-            ) : null}
-          </div>
-        ) : null}
         </div>
       </div>
 
