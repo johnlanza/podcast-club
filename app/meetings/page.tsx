@@ -18,7 +18,8 @@ function formatDate(value: string) {
     weekday: 'short',
     month: 'short',
     day: 'numeric',
-    year: 'numeric'
+    year: 'numeric',
+    timeZone: 'UTC'
   });
 }
 
@@ -158,28 +159,35 @@ export default function MeetingsPage() {
     setError('');
     setSaving(true);
 
-    const payload = {
-      ...form,
-      podcast: form.podcast || null,
-      date: new Date(form.date).toISOString()
-    };
+    try {
+      const payload = {
+        ...form,
+        podcast: form.podcast || null,
+        date: new Date(form.date).toISOString()
+      };
 
-    const res = await fetch(editingMeetingId ? `/api/meetings/${editingMeetingId}` : '/api/meetings', {
-      method: editingMeetingId ? 'PATCH' : 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    });
+      const endpoint = editingMeetingId
+        ? withBasePath(`/api/meetings/${editingMeetingId}`)
+        : withBasePath('/api/meetings');
+      const res = await fetch(endpoint, {
+        method: editingMeetingId ? 'PATCH' : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
 
-    if (!res.ok) {
-      const data = await res.json();
-      setError(data.message || 'Unable to save meeting.');
+      const data = (await res.json().catch(() => null)) as { message?: string } | null;
+      if (!res.ok) {
+        setError(data?.message || 'Unable to save meeting.');
+        return;
+      }
+
+      resetFormToCreate();
+      await loadPageData();
+    } catch {
+      setError('Unable to save meeting.');
+    } finally {
       setSaving(false);
-      return;
     }
-
-    resetFormToCreate();
-    await loadPageData();
-    setSaving(false);
   }
 
   function openCompleteMeetingModal(meeting: Meeting) {
